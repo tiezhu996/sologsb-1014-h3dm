@@ -9,20 +9,20 @@ export const RULES = ['前提', '定义展开', '代入', '等式变形', '分�
 
 function sampleSteps(): ProofStep[] {
   return [
-    { id: 's1', type: 'premise', statement: '$a,b$ 是实数', rule: '前提', references: [], note: '采用实数域中的交换律与分配律。', counterexample: '', alternative: '' },
-    { id: 's2', type: 'derivation', statement: '$(a+b)^2=(a+b)(a+b)$', rule: '定义展开', references: ['s1'], note: '把平方写成两个相同因式之积。', counterexample: '', alternative: '' },
-    { id: 's3', type: 'derivation', statement: '$(a+b)(a+b)=a^2+ab+ba+b^2$', rule: '分配律', references: ['s2'], note: '', counterexample: '', alternative: '也可先展开后半部分。' },
-    { id: 's4', type: 'derivation', statement: '$a^2+ab+ba+b^2=a^2+2ab+b^2$', rule: '同类项合并', references: ['s3'], note: '由实数的交换律，$ab=ba$。', counterexample: '', alternative: '' },
-    { id: 's5', type: 'goal', statement: '$(a+b)^2=a^2+2ab+b^2$', rule: '结论', references: ['s4'], note: '目标已由步骤 1 至 4 逐项推出。', counterexample: '', alternative: '' },
+    { id: 's1', type: 'premise', statement: '$a,b$ 是实数', rule: '前提', references: [], note: '采用实数域中的交换律与分配律。', counterexample: '', alternative: '', symbols: { a: '实数', b: '实数' } },
+    { id: 's2', type: 'derivation', statement: '$(a+b)^2=(a+b)(a+b)$', rule: '定义展开', references: ['s1'], note: '把平方写成两个相同因式之积。', counterexample: '', alternative: '', symbols: {} },
+    { id: 's3', type: 'derivation', statement: '$(a+b)(a+b)=a^2+ab+ba+b^2$', rule: '分配律', references: ['s2'], note: '', counterexample: '', alternative: '也可先展开后半部分。', symbols: {} },
+    { id: 's4', type: 'derivation', statement: '$a^2+ab+ba+b^2=a^2+2ab+b^2$', rule: '同类项合并', references: ['s3'], note: '由实数的交换律，$ab=ba$。', counterexample: '', alternative: '', symbols: {} },
+    { id: 's5', type: 'goal', statement: '$(a+b)^2=a^2+2ab+b^2$', rule: '结论', references: ['s4'], note: '目标已由步骤 1 至 4 逐项推出。', counterexample: '', alternative: '', symbols: {} },
   ];
 }
 
 function issueSteps(): ProofStep[] {
   return [
-    { id: 'i1', type: 'premise', statement: '$n$ 是正整数', rule: '前提', references: [], note: '', counterexample: '', alternative: '' },
-    { id: 'i2', type: 'derivation', statement: '$P(1)$ 成立', rule: '前提', references: ['i1'], note: '归纳基例。', counterexample: '', alternative: '' },
-    { id: 'i3', type: 'derivation', statement: '若 $P(k)$ 成立，则 $P(k+1)$ 也成立', rule: '数学归纳', references: ['missing-step'], note: '这里故意保留一个失效引用，用于演示检查。', counterexample: '', alternative: '' },
-    { id: 'i4', type: 'goal', statement: '$P(n)$ 对所有正整数 $n$ 成立', rule: '结论', references: ['i3'], note: '尚未补齐归纳假设。', counterexample: '', alternative: '' },
+    { id: 'i1', type: 'premise', statement: '$n$ 是正整数', rule: '前提', references: [], note: '', counterexample: '', alternative: '', symbols: {} },
+    { id: 'i2', type: 'derivation', statement: '$P(1)$ 成立', rule: '前提', references: ['i1'], note: '归纳基例。', counterexample: '', alternative: '', symbols: {} },
+    { id: 'i3', type: 'derivation', statement: '若 $P(k)$ 成立，则 $P(k+1)$ 也成立', rule: '数学归纳', references: ['missing-step'], note: '这里故意保留一个失效引用，用于演示检查。', counterexample: '', alternative: '', symbols: { k: '归纳变量（正整数）' } },
+    { id: 'i4', type: 'goal', statement: '$P(n)$ 对所有正整数 $n$ 成立', rule: '结论', references: ['i3'], note: '尚未补齐归纳假设。', counterexample: '', alternative: '', symbols: {} },
   ];
 }
 
@@ -34,9 +34,10 @@ function initialDocuments(): ProofDocument[] {
       title: '完全平方公式证明',
       author: '数学组',
       goal: '$(a+b)^2=a^2+2ab+b^2$',
-      symbols: { a: '实数', b: '实数', P: '关于正整数的命题', n: '正整数', k: '正整数' },
+      symbols: {},
       steps: sampleSteps(),
       versions: [],
+      lostSymbols: {},
       updatedAt: now,
     },
     {
@@ -47,9 +48,23 @@ function initialDocuments(): ProofDocument[] {
       symbols: { P: '关于正整数的命题', n: '正整数', k: '正整数' },
       steps: issueSteps(),
       versions: [],
+      lostSymbols: {},
       updatedAt: now,
     },
   ];
+}
+
+/** 兼容旧稿：补齐步骤级符号表与失去定义记号表，旧文档级符号一律仍按全局符号看待 */
+function migrateDocuments(docs: ProofDocument[]): ProofDocument[] {
+  docs.forEach((document) => {
+    if (!document.symbols || typeof document.symbols !== 'object') document.symbols = {};
+    if (!document.lostSymbols) document.lostSymbols = {};
+    document.steps.forEach((step) => { if (!step.symbols) step.symbols = {}; });
+    document.versions.forEach((version) => {
+      version.steps.forEach((step) => { if (!step.symbols) step.symbols = {}; });
+    });
+  });
+  return docs;
 }
 
 function loadDocuments(): ProofDocument[] {
@@ -57,7 +72,7 @@ function loadDocuments(): ProofDocument[] {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return initialDocuments();
     const parsed = JSON.parse(raw) as ProofDocument[];
-    return Array.isArray(parsed) && parsed.length ? parsed : initialDocuments();
+    return Array.isArray(parsed) && parsed.length ? migrateDocuments(parsed) : initialDocuments();
   } catch {
     return initialDocuments();
   }
@@ -143,8 +158,9 @@ export class ProofStore {
       author: '本地用户',
       goal: '$A=B$',
       symbols: { A: '待定义对象', B: '待定义对象' },
-      steps: [{ id: uid('step'), type: 'premise', statement: '在这里输入前提', rule: '前提', references: [], note: '', counterexample: '', alternative: '' }],
+      steps: [{ id: uid('step'), type: 'premise', statement: '在这里输入前提', rule: '前提', references: [], note: '', counterexample: '', alternative: '', symbols: {} }],
       versions: [],
+      lostSymbols: {},
       updatedAt: new Date().toISOString(),
     };
     this.undoStack.push(clone(this.documents));
@@ -175,6 +191,7 @@ export class ProofStore {
       note: '',
       counterexample: '',
       alternative: '',
+      symbols: {},
     };
     this.update((document) => {
       const selectedIndex = document.steps.findIndex((item) => item.id === this.selectedStepId);
@@ -185,12 +202,51 @@ export class ProofStore {
 
   removeStep(id: string): void {
     this.update((document) => {
+      const removed = document.steps.find((step) => step.id === id);
       document.steps = document.steps.filter((step) => step.id !== id);
       document.steps.forEach((step) => {
         step.references = step.references.filter((reference) => reference !== id);
       });
+      // 本步登记的记号随步骤一起失去定义；已在别处（全局或其它步骤）登记的不受影响
+      if (removed) {
+        const stillDefined = new Set<string>([...Object.keys(document.symbols)]);
+        document.steps.forEach((step) => Object.keys(step.symbols).forEach((symbol) => stillDefined.add(symbol)));
+        Object.entries(removed.symbols).forEach(([symbol, meaning]) => {
+          if (!stillDefined.has(symbol)) document.lostSymbols[symbol] = meaning;
+        });
+      }
     });
     this.ensureSelection();
+  }
+
+  /** 在指定步骤上登记记号，自该步骤起生效；同名记号重新登记即恢复定义 */
+  addStepSymbol(stepId: string, symbol: string, meaning: string): void {
+    this.update((document) => {
+      const step = document.steps.find((item) => item.id === stepId);
+      if (!step) return;
+      step.symbols[symbol] = meaning;
+      delete document.lostSymbols[symbol];
+    });
+  }
+
+  removeStepSymbol(stepId: string, symbol: string): void {
+    this.update((document) => {
+      const step = document.steps.find((item) => item.id === stepId);
+      if (!step) return;
+      const meaning = step.symbols[symbol] ?? '';
+      delete step.symbols[symbol];
+      const stillDefined = Object.keys(document.symbols).some((item) => item === symbol)
+        || document.steps.some((item) => item.id !== stepId && Object.prototype.hasOwnProperty.call(item.symbols, symbol));
+      if (meaning && !stillDefined) document.lostSymbols[symbol] = meaning;
+    });
+  }
+
+  /** 登记文档级全局记号，不受步骤顺序限制，同时恢复同名的失效记号 */
+  addGlobalSymbol(symbol: string, meaning: string): void {
+    this.update((document) => {
+      document.symbols[symbol] = meaning;
+      delete document.lostSymbols[symbol];
+    });
   }
 
   moveStep(sourceId: string, targetId: string): void {
@@ -245,15 +301,30 @@ function stripLatexCommands(text: string): string {
 export function validate(document: ProofDocument): ProofCheck[] {
   const checks: ProofCheck[] = [];
   const ids = new Set(document.steps.map((step) => step.id));
-  const symbolKeys = new Set(Object.keys(document.symbols));
+  const globalSymbols = new Set(Object.keys(document.symbols));
   const ignored = new Set(['a', 'A', 'b', 'B', 'n', 'k', 'P', 'Q', 'R', 'x', 'y', 'to', 'text', 'frac', 'sqrt']);
 
+  // 记号随引入它的步骤生效：全局符号从头可用，步骤记号自本步骤起才进入作用域
+  const available = new Set(globalSymbols);
   document.steps.forEach((step, index) => {
+    const introduced = new Set(Object.keys(step.symbols));
     const tokens = stripLatexCommands(step.statement).match(/\b[A-Za-z][A-Za-z0-9']*\b/g) ?? [];
-    const unknown = [...new Set(tokens.filter((token) => !symbolKeys.has(token) && !ignored.has(token)))];
+    const unknown = [...new Set(tokens.filter((token) => !ignored.has(token) && !available.has(token) && !introduced.has(token)))];
     if (unknown.length) {
-      checks.push({ id: `symbol-${step.id}`, severity: 'warning', title: '发现未定义符号', detail: `步骤 ${index + 1} 使用了：${unknown.join('、')}`, stepId: step.id });
+      const notYet = unknown.filter((token) => document.steps.slice(index + 1).some((later) => Object.prototype.hasOwnProperty.call(later.symbols, token)));
+      const lost = unknown.filter((token) => !notYet.includes(token) && Object.prototype.hasOwnProperty.call(document.lostSymbols, token));
+      const undefinedOnes = unknown.filter((token) => !notYet.includes(token) && !lost.includes(token));
+      if (notYet.length) {
+        checks.push({ id: `symbol-later-${step.id}`, severity: 'warning', title: '记号尚未引入', detail: `步骤 ${index + 1} 提前使用了：${notYet.join('、')}（自引入步骤起才生效）`, stepId: step.id });
+      }
+      if (lost.length) {
+        checks.push({ id: `symbol-lost-${step.id}`, severity: 'warning', title: '记号失去定义', detail: `步骤 ${index + 1} 使用的：${lost.join('、')}，其登记步骤已被删除`, stepId: step.id });
+      }
+      if (undefinedOnes.length) {
+        checks.push({ id: `symbol-${step.id}`, severity: 'warning', title: '发现未定义符号', detail: `步骤 ${index + 1} 使用了：${undefinedOnes.join('、')}`, stepId: step.id });
+      }
     }
+    introduced.forEach((symbol) => available.add(symbol));
 
     step.references.forEach((reference) => {
       if (!ids.has(reference)) {

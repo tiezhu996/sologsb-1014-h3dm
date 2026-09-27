@@ -53,6 +53,20 @@ function download(name: string, content: string, mime: string): void {
   URL.revokeObjectURL(link.href);
 }
 
+/** 汇总记号的来处：全局、某步骤引入、登记步骤已删除 */
+function symbolOrigins(document: ProofDocument): {
+  global: [string, string][];
+  scoped: { step: ProofStep; index: number; entries: [string, string][] }[];
+  lost: [string, string][];
+} {
+  const global = Object.entries(document.symbols);
+  const scoped = document.steps
+    .map((step, index) => ({ step, index, entries: Object.entries(step.symbols ?? {}) as [string, string][] }))
+    .filter((group) => group.entries.length);
+  const lost = Object.entries(document.lostSymbols ?? {});
+  return { global, scoped, lost };
+}
+
 function exportMarkdown(document: ProofDocument): string {
   const lines = [`# ${document.title}`, '', `**证明目标：** $${document.goal}$`, ''];
   document.steps.forEach((step, index) => {
@@ -62,13 +76,22 @@ function exportMarkdown(document: ProofDocument): string {
     lines.push(`- 类型：${typeLabel[step.type]}`);
     lines.push(`- 推理规则：${step.rule}`);
     if (refs.length) lines.push(`- 依据：${refs.join('、')}`);
+    const introduced = Object.entries(step.symbols ?? {});
+    if (introduced.length) {
+      lines.push(`- 本步引入记号：${introduced.map(([symbol, meaning]) => `$${symbol}$（${meaning}）`).join('、')}`);
+    }
     if (step.note) lines.push(`- 旁注：${step.note}`);
     if (step.counterexample) lines.push(`- 反例：${step.counterexample}`);
     if (step.alternative) lines.push(`- 替代分支：${step.alternative}`);
     lines.push('');
   });
+  const origins = symbolOrigins(document);
   lines.push('## 符号表');
-  Object.entries(document.symbols).forEach(([symbol, meaning]) => lines.push(`- $${symbol}$：${meaning}`));
+  origins.global.forEach(([symbol, meaning]) => lines.push(`- $${symbol}$：${meaning}（全局符号，全程有效）`));
+  origins.scoped.forEach(({ index, entries }) => {
+    entries.forEach(([symbol, meaning]) => lines.push(`- $${symbol}$：${meaning}（由步骤 ${index + 1} 引入，自该步骤起有效）`));
+  });
+  origins.lost.forEach(([symbol, meaning]) => lines.push(`- $${symbol}$：${meaning}（登记步骤已删除，记号失去定义）`));
   return lines.join('\n');
 }
 
@@ -78,9 +101,25 @@ function exportLatex(document: ProofDocument): string {
     const refs = step.references.map((id) => document.steps.findIndex((item) => item.id === id) + 1).filter(Boolean);
     const support = refs.length ? `（依据 ${refs.join(', ')}；${step.rule}）` : `（${step.rule}）`;
     lines.push(`  \\item ${step.statement} ${support}`);
+    const introduced = Object.entries(step.symbols ?? {});
+    if (introduced.length) {
+      lines.push(`  \\par\\small 本步引入记号：${introduced.map(([symbol, meaning]) => `$${symbol}$（${meaning}）`).join('、')}`);
+    }
     if (step.note) lines.push(`  \\par\\small 旁注：${step.note}`);
   });
-  lines.push('\\end{enumerate}', '\\end{document}');
+  lines.push('\\end{enumerate}');
+  const origins = symbolOrigins(document);
+  if (origins.global.length || origins.scoped.length || origins.lost.length) {
+    lines.push('\\section*{符号表}');
+    lines.push('\\begin{itemize}');
+    origins.global.forEach(([symbol, meaning]) => lines.push(`  \\item $${symbol}$：${meaning}（全局符号，全程有效）`));
+    origins.scoped.forEach(({ index, entries }) => {
+      entries.forEach(([symbol, meaning]) => lines.push(`  \\item $${symbol}$：${meaning}（由步骤 ${index + 1} 引入，自该步骤起有效）`));
+    });
+    origins.lost.forEach(([symbol, meaning]) => lines.push(`  \\item $${symbol}$：${meaning}（登记步骤已删除，记号失去定义）`));
+    lines.push('\\end{itemize}');
+  }
+  lines.push('\\end{document}');
   return lines.join('\n');
 }
 
@@ -260,6 +299,7 @@ export class ProofApp implements Component {
                     const referenceIndex = document.steps.findIndex((item) => item.id === reference);
                     return referenceIndex >= 0 ? `步骤 ${referenceIndex + 1}` : `缺失 ${shortId(reference)}`;
                   }).join('、')}` : '独立前提'),
+                  Object.keys(step.symbols ?? {}).length > 0 && m('span.step-symbols', `引入记号：${Object.keys(step.symbols).join('、')}`),
                   step.note && m('span.has-note', '含旁注'),
                   step.counterexample && m('span.has-counterexample', '含反例'),
                   step.alternative && m('span.has-branch', '含替代分支'),
@@ -319,22 +359,62 @@ export class ProofApp implements Component {
               m('div', [m('label.field-label', '反例 / 边界情况'), m('textarea.textarea.is-small', { rows: 2, value: selected.counterexample, placeholder: '尝试寻找反例', oninput: (event: Event) => store.updateStep({ counterexample: (event.target as HTMLTextAreaElement).value }) })]),
               m('div', [m('label.field-label', '替代分支'), m('textarea.textarea.is-small', { rows: 2, value: selected.alternative, placeholder: '另一种可行推导', oninput: (event: Event) => store.updateStep({ alternative: (event.target as HTMLTextAreaElement).value }) })]),
             ]),
+            m('label.field-label', `本步引入记号（自本步起生效，共 ${Object.keys(selected.symbols ?? {}).length} 个）`),
+            m('div.step-symbol-list', Object.entries(selected.symbols ?? {}).map(([symbol, meaning]) => m('div.symbol-row', [
+              m('code', symbol),
+              m('input.symbol-meaning', { value: meaning, oninput: (event: Event) => store.addStepSymbol(selected.id, symbol, (event.target as HTMLInputElement).value) }),
+              m('button.symbol-remove', { title: '移除记号', onclick: () => { store.removeStepSymbol(selected.id, symbol); m.redraw(); } }, '×'),
+            ]))),
             m('button.button.is-small.is-white.is-fullwidth.add-symbol', {
               onclick: () => {
-                const symbol = window.prompt('输入符号名称');
+                const symbol = window.prompt('输入本步引入的符号名称');
                 if (!symbol) return;
                 const meaning = window.prompt('输入符号含义') ?? '待补充';
-                store.update((document) => { document.symbols[symbol] = meaning; });
+                store.addStepSymbol(selected.id, symbol, meaning);
                 m.redraw();
               },
-            }, '＋ 登记新符号'),
+            }, '＋ 在本步登记记号'),
+            m('button.button.is-small.is-white.is-fullwidth', {
+              onclick: () => {
+                const symbol = window.prompt('输入全局符号名称（不受步骤顺序限制）');
+                if (!symbol) return;
+                const meaning = window.prompt('输入符号含义') ?? '待补充';
+                store.addGlobalSymbol(symbol, meaning);
+                m.redraw();
+              },
+            }, '＋ 登记全局记号'),
           ]) : m('section.panel.inspector', m('p.empty-copy', '选择一个步骤进行检查。')),
           m('section.panel.symbol-panel', [
-            m('div.panel-heading', [m('span', '符号表'), m('span.count-badge', Object.keys(document.symbols).length)]),
-            m('div.symbol-list', Object.entries(document.symbols).map(([symbol, meaning]) => m('div.symbol-row', [
-              m('code', symbol),
-              m('input.symbol-meaning', { value: meaning, oninput: (event: Event) => store.update((item) => { item.symbols[symbol] = (event.target as HTMLInputElement).value; }) }),
-            ]))),
+            m('div.panel-heading', [
+              m('span', '符号表'),
+              m('button.icon-button', { onclick: () => {
+                const symbol = window.prompt('输入全局符号名称（不受步骤顺序限制）');
+                if (!symbol) return;
+                const meaning = window.prompt('输入符号含义') ?? '待补充';
+                store.addGlobalSymbol(symbol, meaning);
+                m.redraw();
+              }, title: '登记全局记号' }, '+'),
+            ]),
+            m('div.symbol-list', [
+              Object.keys(document.symbols).length > 0 && m('p.symbol-group-label', `全局记号 · 全程有效（${Object.keys(document.symbols).length}）`),
+              ...Object.entries(document.symbols).map(([symbol, meaning]) => m('div.symbol-row', [
+                m('code', symbol),
+                m('input.symbol-meaning', { value: meaning, oninput: (event: Event) => store.update((item) => { item.symbols[symbol] = (event.target as HTMLInputElement).value; }) }),
+              ])),
+              ...document.steps.flatMap((step, index) => Object.entries(step.symbols ?? {}).map(([symbol, meaning]) => m('button.symbol-row.is-scoped', {
+                title: '由步骤 ' + (index + 1) + ' 引入，点击跳转',
+                onclick: () => { store.selectStep(step.id); globalThis.document.querySelector(`[data-step="${step.id}"]`)?.scrollIntoView({ block: 'center', behavior: 'smooth' }); m.redraw(); },
+              }, [
+                m('code', symbol),
+                m('span.symbol-origin', meaning ? `${meaning} · 步骤 ${index + 1} 引入` : `步骤 ${index + 1} 引入`),
+              ]))),
+              ...Object.entries(document.lostSymbols ?? {}).map(([symbol, meaning]) => m('div.symbol-row.is-lost', [
+                m('code', symbol),
+                m('span.symbol-origin', meaning ? `${meaning} · 登记步骤已删除` : '登记步骤已删除'),
+              ])),
+              Object.keys(document.symbols).length === 0 && document.steps.every((step) => Object.keys(step.symbols ?? {}).length === 0)
+                && m('p.empty-copy', '在某一步的检查器中登记该步带来的记号，或直接登记全局记号。'),
+            ]),
           ]),
           m('section.panel.checks-panel', [
             m('div.panel-heading', [m('span', '检查结果'), m('span.count-badge', checks.length)]),

@@ -10,6 +10,8 @@ export interface ProofStep {
   note: string;
   counterexample: string;
   alternative: string;
+  /** 本步骤引入的记号及其含义，自本步骤起生效 */
+  symbols: Record<string, string>;
 }
 
 export interface ProofVersion {
@@ -28,6 +30,8 @@ export interface ProofDocument {
   symbols: Record<string, string>;
   steps: ProofStep[];
   versions: ProofVersion[];
+  /** 引入步骤已被删除、失去定义的记号（登记于当前会话） */
+  lostSymbols: Record<string, string>;
   updatedAt: string;
 }
 
