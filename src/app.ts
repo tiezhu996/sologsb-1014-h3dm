@@ -53,6 +53,10 @@ function download(name: string, content: string, mime: string): void {
   URL.revokeObjectURL(link.href);
 }
 
+function formatStepSymbols(step: ProofStep): string {
+  return Object.entries(step.symbols).map(([symbol, meaning]) => `$${symbol}$（${meaning}）`).join('、');
+}
+
 function exportMarkdown(document: ProofDocument): string {
   const lines = [`# ${document.title}`, '', `**证明目标：** $${document.goal}$`, ''];
   document.steps.forEach((step, index) => {
@@ -62,13 +66,26 @@ function exportMarkdown(document: ProofDocument): string {
     lines.push(`- 类型：${typeLabel[step.type]}`);
     lines.push(`- 推理规则：${step.rule}`);
     if (refs.length) lines.push(`- 依据：${refs.join('、')}`);
+    if (Object.keys(step.symbols).length) lines.push(`- 本步引入记号：${formatStepSymbols(step)}（自本步起生效）`);
     if (step.note) lines.push(`- 旁注：${step.note}`);
     if (step.counterexample) lines.push(`- 反例：${step.counterexample}`);
     if (step.alternative) lines.push(`- 替代分支：${step.alternative}`);
     lines.push('');
   });
   lines.push('## 符号表');
-  Object.entries(document.symbols).forEach(([symbol, meaning]) => lines.push(`- $${symbol}$：${meaning}`));
+  const globalEntries = Object.entries(document.symbols);
+  if (globalEntries.length) {
+    lines.push('', '**文档级符号（全程有效）：**', '');
+    globalEntries.forEach(([symbol, meaning]) => lines.push(`- $${symbol}$：${meaning}（文档级符号表，不受步骤顺序限制）`));
+  }
+  document.steps.forEach((step, index) => {
+    Object.entries(step.symbols).forEach(([symbol, meaning]) => {
+      lines.push(`- $${symbol}$：${meaning}（步骤 ${index + 1} 引入，自步骤 ${index + 1} 起生效）`);
+    });
+  });
+  if (!globalEntries.length && !document.steps.some((step) => Object.keys(step.symbols).length)) {
+    lines.push('- （尚未登记任何记号）');
+  }
   return lines.join('\n');
 }
 
@@ -78,9 +95,21 @@ function exportLatex(document: ProofDocument): string {
     const refs = step.references.map((id) => document.steps.findIndex((item) => item.id === id) + 1).filter(Boolean);
     const support = refs.length ? `（依据 ${refs.join(', ')}；${step.rule}）` : `（${step.rule}）`;
     lines.push(`  \\item ${step.statement} ${support}`);
+    if (Object.keys(step.symbols).length) lines.push(`  \\par\\small 本步引入记号：${formatStepSymbols(step)}（自本步起生效）`);
     if (step.note) lines.push(`  \\par\\small 旁注：${step.note}`);
   });
-  lines.push('\\end{enumerate}', '\\end{document}');
+  lines.push('\\end{enumerate}');
+  lines.push('\\section*{符号表}');
+  lines.push('\\begin{itemize}');
+  Object.entries(document.symbols).forEach(([symbol, meaning]) => {
+    lines.push(`  \\item $${symbol}$：${meaning}（文档级符号表，全程有效）`);
+  });
+  document.steps.forEach((step, index) => {
+    Object.entries(step.symbols).forEach(([symbol, meaning]) => {
+      lines.push(`  \\item $${symbol}$：${meaning}（步骤 ${index + 1} 引入，自步骤 ${index + 1} 起生效）`);
+    });
+  });
+  lines.push('\\end{itemize}', '\\end{document}');
   return lines.join('\n');
 }
 
@@ -260,6 +289,10 @@ export class ProofApp implements Component {
                     const referenceIndex = document.steps.findIndex((item) => item.id === reference);
                     return referenceIndex >= 0 ? `步骤 ${referenceIndex + 1}` : `缺失 ${shortId(reference)}`;
                   }).join('、')}` : '独立前提'),
+                  Object.keys(step.symbols).length > 0 && m('span.step-introduces', { title: '这些记号从本步起向后有效' }, [
+                    m('strong', '本步引入：'),
+                    ...Object.entries(step.symbols).map(([symbol]) => m('code.introduced-chip', symbol)),
+                  ]),
                   step.note && m('span.has-note', '含旁注'),
                   step.counterexample && m('span.has-counterexample', '含反例'),
                   step.alternative && m('span.has-branch', '含替代分支'),
@@ -319,22 +352,99 @@ export class ProofApp implements Component {
               m('div', [m('label.field-label', '反例 / 边界情况'), m('textarea.textarea.is-small', { rows: 2, value: selected.counterexample, placeholder: '尝试寻找反例', oninput: (event: Event) => store.updateStep({ counterexample: (event.target as HTMLTextAreaElement).value }) })]),
               m('div', [m('label.field-label', '替代分支'), m('textarea.textarea.is-small', { rows: 2, value: selected.alternative, placeholder: '另一种可行推导', oninput: (event: Event) => store.updateStep({ alternative: (event.target as HTMLTextAreaElement).value }) })]),
             ]),
+            m('label.field-label', '本步引入记号（自本步起生效）'),
+            m('div.step-symbol-list', Object.keys(selected.symbols).length === 0 && m('p.step-symbol-empty', '本步尚未引入记号。')),
+            ...Object.entries(selected.symbols).map(([symbol, meaning]) => m('div.step-symbol-row', [
+              m('code', symbol),
+              m('input.symbol-meaning', {
+                value: meaning,
+                placeholder: '记号含义',
+                oninput: (event: Event) => {
+                  const next = { ...selected.symbols, [symbol]: (event.target as HTMLInputElement).value };
+                  store.updateStep({ symbols: next });
+                },
+              }),
+              m('button.step-symbol-remove', {
+                title: '移除该记号，后续步骤使用它将报“记号失去定义”',
+                onclick: () => { store.removeStepSymbol(selected.id, symbol); m.redraw(); },
+              }, '×'),
+            ])),
             m('button.button.is-small.is-white.is-fullwidth.add-symbol', {
               onclick: () => {
-                const symbol = window.prompt('输入符号名称');
+                const symbol = window.prompt('输入本步引入的记号（如 k、P）');
                 if (!symbol) return;
-                const meaning = window.prompt('输入符号含义') ?? '待补充';
-                store.update((document) => { document.symbols[symbol] = meaning; });
+                const key = symbol.trim();
+                if (!key) return;
+                if (Object.prototype.hasOwnProperty.call(document.symbols, key)) {
+                  store.notify(`“${key}”已在文档级符号表中，全程有效，无需在步骤中重复引入`);
+                  return;
+                }
+                if (Object.prototype.hasOwnProperty.call(selected.symbols, key)) {
+                  store.notify(`本步已经引入了“${key}”`);
+                  return;
+                }
+                const meaning = window.prompt(`输入记号 ${key} 的含义`) ?? '待补充';
+                store.addStepSymbol(selected.id, key, meaning);
                 m.redraw();
               },
-            }, '＋ 登记新符号'),
+            }, '＋ 登记本步新记号'),
           ]) : m('section.panel.inspector', m('p.empty-copy', '选择一个步骤进行检查。')),
           m('section.panel.symbol-panel', [
-            m('div.panel-heading', [m('span', '符号表'), m('span.count-badge', Object.keys(document.symbols).length)]),
-            m('div.symbol-list', Object.entries(document.symbols).map(([symbol, meaning]) => m('div.symbol-row', [
-              m('code', symbol),
-              m('input.symbol-meaning', { value: meaning, oninput: (event: Event) => store.update((item) => { item.symbols[symbol] = (event.target as HTMLInputElement).value; }) }),
-            ]))),
+            (() => {
+              const globalEntries = Object.entries(document.symbols);
+              const stepEntries = document.steps.flatMap((step, index) =>
+                Object.entries(step.symbols).map(([symbol, meaning]) => ({ step, index, symbol, meaning })),
+              );
+              const total = globalEntries.length + stepEntries.length;
+              return [
+                m('div.panel-heading', [m('span', '符号表'), [
+                  m('button.icon-button', {
+                    onclick: () => {
+                      const symbol = window.prompt('输入文档级记号名称');
+                      if (!symbol) return;
+                      const key = symbol.trim();
+                      if (!key) return;
+                      const meaning = window.prompt(`输入记号 ${key} 的含义`) ?? '待补充';
+                      store.update((item) => { item.symbols[key] = meaning; });
+                      m.redraw();
+                    },
+                    title: '登记文档级记号（全程有效）',
+                  }, '+'),
+                  m('span.count-badge', { style: { marginLeft: '6px' } }, total),
+                ]]),
+                m('div.symbol-list', [
+                  globalEntries.length > 0 && m('p.symbol-group-label', '文档级 · 全程有效'),
+                  ...globalEntries.map(([symbol, meaning]) => m('div.symbol-row', [
+                    m('code', symbol),
+                    m('input.symbol-meaning', { value: meaning, oninput: (event: Event) => store.update((item) => { item.symbols[symbol] = (event.target as HTMLInputElement).value; }) }),
+                  ])),
+                  stepEntries.length > 0 && m('p.symbol-group-label', '随步骤引入 · 自该步起生效'),
+                  ...stepEntries.map(({ step, index, symbol, meaning }) => m('div.symbol-row.is-step-symbol', [
+                    m('code', symbol),
+                    m('input.symbol-meaning', {
+                      value: meaning,
+                      title: `步骤 ${index + 1} 引入`,
+                      oninput: (event: Event) => {
+                        const next = { ...step.symbols, [symbol]: (event.target as HTMLInputElement).value };
+                        store.update((item) => {
+                          const target = item.steps.find((candidate) => candidate.id === step.id);
+                          if (target) target.symbols = next;
+                        });
+                      },
+                    }),
+                    m('button.symbol-origin', {
+                      title: `由步骤 ${index + 1} 引入，点击查看`,
+                      onclick: () => {
+                        store.selectStep(step.id);
+                        globalThis.document.querySelector(`[data-step="${step.id}"]`)?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+                        m.redraw();
+                      },
+                    }, `步骤 ${index + 1} 引入`),
+                  ])),
+                  total === 0 && m('p.empty-copy', '尚无记号。在步骤检查器中登记本步引入的记号，或用 + 登记文档级记号。'),
+                ]),
+              ];
+            })(),
           ]),
           m('section.panel.checks-panel', [
             m('div.panel-heading', [m('span', '检查结果'), m('span.count-badge', checks.length)]),

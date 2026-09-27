@@ -169,10 +169,23 @@ button { font: inherit; }
 .field-grid { display: grid; gap: 2px; }
 .add-symbol { margin-top: 12px !important; }
 .symbol-list { padding: 7px; display: grid; gap: 4px; }
+.symbol-group-label { margin: 6px 4px 2px; color: #8493a3; font-size: 10px; font-weight: 700; letter-spacing: .04em; }
 .symbol-row { display: grid; grid-template-columns: 58px 1fr; align-items: center; gap: 7px; }
+.symbol-row.is-step-symbol { grid-template-columns: 46px 1fr auto; padding: 2px 0; }
 .symbol-row code { padding: 4px 6px; border-radius: 5px; text-align: center; color: #295273; background: #edf3f7; }
+.symbol-origin { border: 1px solid #d4e0ea; border-radius: 5px; padding: 2px 6px; color: #3a6d99; background: #f2f8fd; font-size: 10px; cursor: pointer; white-space: nowrap; }
+.symbol-origin:hover { background: #e5f1fa; }
 .symbol-meaning { width: 100%; border: 0; border-bottom: 1px solid transparent; outline: 0; color: #475568; font-size: 10px; background: transparent; }
 .symbol-meaning:focus { border-bottom-color: #82a9c6; }
+.step-symbol-list { display: grid; gap: 4px; margin-top: 4px; }
+.step-symbol-empty { margin: 0; color: var(--muted); font-size: 10px; }
+.step-symbol-row { display: grid; grid-template-columns: 46px 1fr 22px; align-items: center; gap: 6px; padding: 3px 5px; border-radius: 7px; background: #f7f9fb; }
+.step-symbol-row code { padding: 3px 5px; border-radius: 5px; text-align: center; color: #295273; background: #e5eff7; font-size: 10px; }
+.step-symbol-remove { border: 0; border-radius: 5px; color: #b0575f; background: transparent; font-size: 14px; line-height: 1; cursor: pointer; }
+.step-symbol-remove:hover { background: #fbe9eb; }
+.step-introduces { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 4px; color: #29754f; }
+.step-introduces strong { font-weight: 700; }
+.introduced-chip { padding: 1px 5px; border-radius: 5px; color: #29754f !important; background: #e7f6ee; font-size: 10px; font-family: Consolas, monospace; }
 .check-list { padding: 7px; display: grid; gap: 5px; }
 .check-item { width: 100%; display: grid; grid-template-columns: 22px 1fr; gap: 5px; padding: 7px; text-align: left; border: 0; border-radius: 8px; color: #526174; background: #f7f9fb; cursor: pointer; }
 .check-item.error { color: #8f2532; background: #fff0f2; }

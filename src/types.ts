@@ -10,6 +10,8 @@ export interface ProofStep {
   note: string;
   counterexample: string;
   alternative: string;
+  /** 本步引入的记号：键为记号，值为含义，从本步起向后有效 */
+  symbols: Record<string, string>;
 }
 
 export interface ProofVersion {
